@@ -41,7 +41,11 @@ df_children %>%
   modelr::add_residuals(reg_mod_1) %>% 
   ggplot(aes(x = pred, y = resid)) +
   geom_point(aes(alpha = .2)) +
-  ggtitle('Residual plot for birthweight')
+  ggtitle('Residual plot for birthweight') +
+  labs(
+    x = "Fitted Values",
+    y = "Residuals"
+  )
 ```
 
 The plot of model residuals against fitted values shows that the error terms are residual values bounce around 0. Residuals form a horizontal ‘band’ around zero: above and below, which indicates the equal variance. However, there are some ‘unusual’ values stand out from the random pattern on the left, which is an indication of potential outliers in the lower range of birthweight.
@@ -71,4 +75,87 @@ df_children %>%
 
 In this plot, we can observe that the model_3 has a much lower rmse that the other two, so model_3 is might be a better model compared to the other two.
 
+
+Problem 2
+---
+
+#### Data download
+
+```{r data_download}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+#### 5000 bootstrap samples
+
+```{r boostrap}
+results = 
+  weather_df %>% 
+  select(tmin, tmax) %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~ lm(tmax ~ tmin, data = .x)),
+    results_r = map(models, broom::glance),
+    results_beta = map(models, broom::tidy)) %>% 
+  select(.id, results_r, results_beta)
+```
+
+#### Plot the distributions
+
+```{r r_squared}
+results %>% 
+  select(results_r) %>% 
+  unnest(results_r) %>% 
+  select(r.squared) %>% 
+  ggplot(aes(x = r.squared)) + geom_density()
+```
+The distribution of r squared is nearly bell-shaped and approximately normal, with a little skewness to the left.
+
+```{r beta}
+results %>% 
+  select(.id, results_beta) %>% 
+  unnest(results_beta) %>% 
+  select(.id, term, estimate) %>% 
+  pivot_wider(id_cols = .id, names_from = term, values_from = estimate) %>% 
+  rename(intercept = "(Intercept)") %>% 
+  mutate(log_beta_product = log(intercept * tmin)) %>% 
+  select(log_beta_product) %>% 
+  ggplot(aes(x = log_beta_product)) + geom_density()
+```
+
+The distribution of log (beta0 * beta1) is nearly bell-shaped and approximately normal, with a little skewness to the left.
+
+#### 95% Confidence Interval
+
+```{r 95_CI}
+## 95% confidence interval for r^2
+results %>% 
+  select(results_r) %>% 
+  unnest(results_r) %>% 
+  select(r.squared) %>% 
+  summarise("2.5%" = quantile(r.squared,0.025), "97.5% " = quantile(r.squared,0.975)) %>% 
+  round(3) %>%
+  knitr::kable(caption = "95% confidence interval for r_squared" ) 
+
+## 95% confidence interval for log(beta0*beta1)
+results %>% 
+  select(.id, results_beta) %>% 
+  unnest(results_beta) %>% 
+  select(.id, term, estimate) %>% 
+  pivot_wider(id_cols = .id, names_from = term, values_from = estimate) %>% 
+  rename(intercept = "(Intercept)") %>% 
+  mutate(log_beta_product = log(intercept * tmin)) %>% 
+  select(log_beta_product) %>% 
+  summarise("2.5%" = quantile(log_beta_product, 0.025), "97.5% " = quantile(log_beta_product, 0.975)) %>% 
+  knitr::kable(caption = "95% confidence interval for log(beta0*beta1)" )
+```
 
