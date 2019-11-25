@@ -19,11 +19,56 @@ Problem 1
 #### Load and clean the data
 
 ```{r birthweight_data}
-df_children <- read.csv('./Data/birthweight.csv') %>% 
+df_children <- read_csv('./Data/birthweight.csv') %>% 
   janitor::clean_names() %>%
   mutate(babysex = factor(babysex, levels = c(1, 2), labels = c("male", "female")),
          frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
          malform = factor(malform, levels = c(0, 1), labels = c("absent", "present")),
          mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian", "Puerto Rican", "Other")))
+
+skimr::skim(df_children)
 ```
+
+#### Propose a regression model for birthweight
+
+First, we consider that a child's birthweight is based on its gender, the family income, and the number of cigaretts smoke. This model is based on a hypothesized structure for the factors that underly birthweight that the nutrition that a baby gets during the pregnancy is represented by the family income and the number of cigaretts smoked during pregnancy, and we would expect different birthweight in different sex.
+
+```{r my_regression}
+reg_mod_1 <- lm(bwt ~ babysex + fincome + smoken, data = df_children)
+
+df_children %>%
+  modelr::add_predictions(reg_mod_1) %>% 
+  modelr::add_residuals(reg_mod_1) %>% 
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(aes(alpha = .2)) +
+  ggtitle('Residual plot for birthweight')
+```
+
+The plot of model residuals against fitted values shows that the error terms are residual values bounce around 0. Residuals form a horizontal ‘band’ around zero: above and below, which indicates the equal variance. However, there are some ‘unusual’ values stand out from the random pattern on the left, which is an indication of potential outliers in the lower range of birthweight.
+
+#### Comparing models
+
+```{r compare_models}
+reg_mod_2 <- lm(bwt ~ blength + gaweeks, data = df_children)
+reg_mod_3 <- lm(bwt ~ blength * bhead * babysex, data = df_children)
+
+df_children %>% 
+  crossv_mc(100) %>% 
+  mutate(train = map(train, as.tibble),
+         test = map(test, as.tibble)) %>% 
+  mutate(mod1_pred = map(train, ~lm(bwt ~ babysex + fincome + smoken, data = .x)),
+         mod2_pred = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+         mod3_pred = map(train, ~lm(bwt ~ blength * bhead * babysex, data=.x))) %>% 
+  mutate(rmse_model_1 = map2_dbl(mod1_pred, test, ~rmse(model = .x, data =.y)),
+         rmse_model_2 = map2_dbl(mod2_pred, test, ~rmse(model = .x, data =.y)),
+         rmse_model_3 = map2_dbl(mod3_pred, test, ~rmse(model = .x, data =.y))) %>% 
+  select(starts_with("rmse")) %>% 
+  gather(key = model, value = rmse) %>% 
+  mutate(model = str_replace(model, "rmse_", ""),
+         model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+In this plot, we can observe that the model_3 has a much lower rmse that the other two, so model_3 is might be a better model compared to the other two.
+
 
